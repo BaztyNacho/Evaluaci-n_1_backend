@@ -1,0 +1,193 @@
+{% extends 'academic/base.html' %}
+{% block title %}Inscripciones{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">Inscripciones (Estudiante - Curso)</h1>
+
+<!-- Formulario de Crear / Editar. Los selects se llenan vía fetch() al cargar la página -->
+<form id="sc-form" class="row g-2 mb-4 border p-3 rounded bg-light">
+    <input type="hidden" id="sc-id" value="">
+    <div class="col-md-4">
+        <select id="sc-student" class="form-select" required>
+            <option value="">Seleccione un estudiante...</option>
+        </select>
+    </div>
+    <div class="col-md-4">
+        <select id="sc-course" class="form-select" required>
+            <option value="">Seleccione un curso...</option>
+        </select>
+    </div>
+    <div class="col-md-4">
+        <button type="submit" class="btn btn-primary" id="sc-submit-btn">Crear Inscripción</button>
+        <button type="button" class="btn btn-secondary d-none" id="sc-cancel-btn">Cancelar</button>
+    </div>
+</form>
+
+<table class="table table-striped table-bordered">
+    <thead class="table-dark">
+        <tr>
+            <th>ID</th>
+            <th>Estudiante</th>
+            <th>Curso</th>
+            <th>Acciones</th>
+        </tr>
+    </thead>
+    <tbody id="sc-tbody">
+        <tr>
+            <td colspan="4" class="text-center">Cargando inscripciones...</td>
+        </tr>
+    </tbody>
+</table>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const form = document.getElementById('sc-form');
+    const idField = document.getElementById('sc-id');
+    const studentSelect = document.getElementById('sc-student');
+    const courseSelect = document.getElementById('sc-course');
+    const submitBtn = document.getElementById('sc-submit-btn');
+    const cancelBtn = document.getElementById('sc-cancel-btn');
+    const tbody = document.getElementById('sc-tbody');
+
+    // Django exige el CSRF token en peticiones POST/PUT/DELETE aunque sea vía fetch.
+    function getCookie(name) {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return parts.pop().split(';').shift();
+    }
+    const csrftoken = getCookie('csrftoken');
+
+    // Llena el <select> de estudiantes consultando /api/students/
+    function loadStudentOptions() {
+        return fetch('/api/students/')
+            .then(response => response.json())
+            .then(data => {
+                data.forEach(student => {
+                    const opt = document.createElement('option');
+                    opt.value = student.id;
+                    opt.textContent = `${student.first_name} ${student.last_name}`;
+                    studentSelect.appendChild(opt);
+                });
+            });
+    }
+
+    // Llena el <select> de cursos consultando /api/courses/
+    function loadCourseOptions() {
+        return fetch('/api/courses/')
+            .then(response => response.json())
+            .then(data => {
+                data.forEach(course => {
+                    const opt = document.createElement('option');
+                    opt.value = course.id;
+                    opt.textContent = course.name;
+                    courseSelect.appendChild(opt);
+                });
+            });
+    }
+
+    // Carga (o recarga) la tabla completa de inscripciones
+    function loadStudentCourses() {
+        fetch('/api/student-courses/')
+            .then(response => response.json())
+            .then(data => {
+                tbody.innerHTML = '';
+                if (data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" class="text-center">No hay inscripciones registradas.</td></tr>';
+                    return;
+                }
+                data.forEach(sc => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${sc.id}</td>
+                        <td>${sc.student_name}</td>
+                        <td>${sc.course_name}</td>
+                        <td>
+                            <button class="btn btn-sm btn-warning btn-edit" data-id="${sc.id}" data-student="${sc.student}" data-course="${sc.course}">Editar</button>
+                            <button class="btn btn-sm btn-danger btn-delete" data-id="${sc.id}">Eliminar</button>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            })
+            .catch(error => {
+                console.error('Error al obtener las inscripciones:', error);
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Error al cargar los datos.</td></tr>';
+            });
+    }
+
+    // Crear (POST) o Editar (PUT) según si hay un ID cargado en el form
+    form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        const id = idField.value;
+        const payload = {
+            student: studentSelect.value,
+            course: courseSelect.value,
+        };
+        const url = id ? `/api/student-courses/${id}/` : '/api/student-courses/';
+        const method = id ? 'PUT' : 'POST';
+
+        fetch(url, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrftoken,
+            },
+            body: JSON.stringify(payload),
+        })
+            .then(response => {
+                if (!response.ok) throw new Error('Error al guardar la inscripción (¿ya existe esa combinación?)');
+                return response.json();
+            })
+            .then(() => {
+                resetForm();
+                loadStudentCourses();
+            })
+            .catch(error => alert(error.message));
+    });
+
+    // Click en "Editar": precarga los selects con los datos de esa fila
+    tbody.addEventListener('click', function (e) {
+        if (e.target.classList.contains('btn-edit')) {
+            const btn = e.target;
+            idField.value = btn.dataset.id;
+            studentSelect.value = btn.dataset.student;
+            courseSelect.value = btn.dataset.course;
+            submitBtn.textContent = 'Guardar Cambios';
+            cancelBtn.classList.remove('d-none');
+        }
+
+        // Click en "Eliminar": pide confirmación y hace DELETE
+        if (e.target.classList.contains('btn-delete')) {
+            const id = e.target.dataset.id;
+            if (!confirm('¿Seguro que deseas eliminar esta inscripción?')) return;
+
+            fetch(`/api/student-courses/${id}/`, {
+                method: 'DELETE',
+                headers: { 'X-CSRFToken': csrftoken },
+            })
+                .then(response => {
+                    if (!response.ok) throw new Error('Error al eliminar la inscripción');
+                    loadStudentCourses();
+                })
+                .catch(error => alert(error.message));
+        }
+    });
+
+    // Botón "Cancelar": vuelve el formulario a modo "Crear"
+    cancelBtn.addEventListener('click', resetForm);
+
+    function resetForm() {
+        idField.value = '';
+        studentSelect.value = '';
+        courseSelect.value = '';
+        submitBtn.textContent = 'Crear Inscripción';
+        cancelBtn.classList.add('d-none');
+    }
+
+    // Al cargar la página: primero llenamos los selects, luego la tabla
+    document.addEventListener('DOMContentLoaded', function () {
+        Promise.all([loadStudentOptions(), loadCourseOptions()]).then(loadStudentCourses);
+    });
+</script>
+{% endblock %}

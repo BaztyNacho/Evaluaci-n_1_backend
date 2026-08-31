@@ -1,0 +1,11 @@
+{% extends 'academic/base.html' %}
+{% block title %}Inicio{% endblock %}
+
+{% block content %}
+<div class="text-center py-5">
+    <h1>Sistema de Gestión Académica</h1>
+    <p class="lead">Consulta el listado de Cursos o Estudiantes desde el menú superior.</p>
+    <a href="{% url 'courses_page' %}" class="btn btn-primary me-2">Ver Cursos</a>
+    <a href="{% url 'students_page' %}" class="btn btn-secondary">Ver Estudiantes</a>
+</div>
+{% endblock %}

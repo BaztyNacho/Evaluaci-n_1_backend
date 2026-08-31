@@ -1,0 +1,157 @@
+{% extends 'academic/base.html' %}
+{% block title %}Estudiantes{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">Estudiantes</h1>
+
+<!-- Formulario de Crear / Editar -->
+<form id="student-form" class="row g-2 mb-4 border p-3 rounded bg-light">
+    <input type="hidden" id="student-id" value="">
+    <div class="col-md-4">
+        <input type="text" id="student-first-name" class="form-control" placeholder="Nombre" required>
+    </div>
+    <div class="col-md-4">
+        <input type="text" id="student-last-name" class="form-control" placeholder="Apellido" required>
+    </div>
+    <div class="col-md-4">
+        <button type="submit" class="btn btn-primary" id="student-submit-btn">Crear Estudiante</button>
+        <button type="button" class="btn btn-secondary d-none" id="student-cancel-btn">Cancelar</button>
+    </div>
+</form>
+
+<table class="table table-striped table-bordered">
+    <thead class="table-dark">
+        <tr>
+            <th>ID</th>
+            <th>Nombre</th>
+            <th>Apellido</th>
+            <th>Acciones</th>
+        </tr>
+    </thead>
+    <tbody id="students-tbody">
+        <tr>
+            <td colspan="4" class="text-center">Cargando estudiantes...</td>
+        </tr>
+    </tbody>
+</table>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const form = document.getElementById('student-form');
+    const idField = document.getElementById('student-id');
+    const firstNameField = document.getElementById('student-first-name');
+    const lastNameField = document.getElementById('student-last-name');
+    const submitBtn = document.getElementById('student-submit-btn');
+    const cancelBtn = document.getElementById('student-cancel-btn');
+    const tbody = document.getElementById('students-tbody');
+
+    // Django exige el CSRF token en peticiones POST/PUT/DELETE aunque sea vía fetch.
+    function getCookie(name) {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return parts.pop().split(';').shift();
+    }
+    const csrftoken = getCookie('csrftoken');
+
+    // Carga (o recarga) la tabla completa desde la API
+    function loadStudents() {
+        fetch('/api/students/')
+            .then(response => response.json())
+            .then(data => {
+                tbody.innerHTML = '';
+                if (data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" class="text-center">No hay estudiantes registrados.</td></tr>';
+                    return;
+                }
+                data.forEach(student => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${student.id}</td>
+                        <td>${student.first_name}</td>
+                        <td>${student.last_name}</td>
+                        <td>
+                            <button class="btn btn-sm btn-warning btn-edit" data-id="${student.id}" data-first="${student.first_name}" data-last="${student.last_name}">Editar</button>
+                            <button class="btn btn-sm btn-danger btn-delete" data-id="${student.id}">Eliminar</button>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            })
+            .catch(error => {
+                console.error('Error al obtener los estudiantes:', error);
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Error al cargar los datos.</td></tr>';
+            });
+    }
+
+    // Crear (POST) o Editar (PUT) según si hay un ID cargado en el form
+    form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        const id = idField.value;
+        const payload = {
+            first_name: firstNameField.value,
+            last_name: lastNameField.value,
+        };
+        const url = id ? `/api/students/${id}/` : '/api/students/';
+        const method = id ? 'PUT' : 'POST';
+
+        fetch(url, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrftoken,
+            },
+            body: JSON.stringify(payload),
+        })
+            .then(response => {
+                if (!response.ok) throw new Error('Error al guardar el estudiante');
+                return response.json();
+            })
+            .then(() => {
+                resetForm();
+                loadStudents();
+            })
+            .catch(error => alert(error.message));
+    });
+
+    // Click en "Editar": precarga el formulario con los datos de esa fila
+    tbody.addEventListener('click', function (e) {
+        if (e.target.classList.contains('btn-edit')) {
+            const btn = e.target;
+            idField.value = btn.dataset.id;
+            firstNameField.value = btn.dataset.first;
+            lastNameField.value = btn.dataset.last;
+            submitBtn.textContent = 'Guardar Cambios';
+            cancelBtn.classList.remove('d-none');
+        }
+
+        // Click en "Eliminar": pide confirmación y hace DELETE
+        if (e.target.classList.contains('btn-delete')) {
+            const id = e.target.dataset.id;
+            if (!confirm('¿Seguro que deseas eliminar este estudiante? Esto también eliminará sus inscripciones.')) return;
+
+            fetch(`/api/students/${id}/`, {
+                method: 'DELETE',
+                headers: { 'X-CSRFToken': csrftoken },
+            })
+                .then(response => {
+                    if (!response.ok) throw new Error('Error al eliminar el estudiante');
+                    loadStudents();
+                })
+                .catch(error => alert(error.message));
+        }
+    });
+
+    // Botón "Cancelar": vuelve el formulario a modo "Crear"
+    cancelBtn.addEventListener('click', resetForm);
+
+    function resetForm() {
+        idField.value = '';
+        form.reset();
+        submitBtn.textContent = 'Crear Estudiante';
+        cancelBtn.classList.add('d-none');
+    }
+
+    document.addEventListener('DOMContentLoaded', loadStudents);
+</script>
+{% endblock %}
